@@ -90,3 +90,6 @@ ENV/
 
 # PyCharm
 .idea/
+bazel-models
+research/syntaxnet/doc.proto
+research/syntaxnet/sentiments.json

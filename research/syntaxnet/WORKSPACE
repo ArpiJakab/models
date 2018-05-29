@@ -3,6 +3,11 @@ local_repository(
   path = "tensorflow",
 )
 
+local_repository(
+    name = "sentiment",
+    path = "/Users/arpi/Projects/sentiment",
+)
+
 # We need to pull in @io_bazel_rules_closure for TensorFlow. Bazel design
 # documentation states that this verbosity is intentional, to prevent
 # TensorFlow/SyntaxNet from depending on different versions of

@@ -823,6 +823,17 @@ py_binary(
     ],
 )
 
+# Build a binary within the context of syntaxnet
+py_binary(
+    name = "sentiment",
+    srcs = ["sentiment.py"],
+    deps = [
+        ":graph_builder",
+        ":sentence_py_pb2",
+        "@sentiment//:sentiment_parser",
+    ],
+)
+
 py_binary(
     name = "parser_eval",
     srcs = ["parser_eval.py"],

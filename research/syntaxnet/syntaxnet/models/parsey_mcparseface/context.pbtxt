@@ -187,3 +187,24 @@ input {
     file_pattern: '-'
   }
 }
+input {
+  name: 'file-in'
+  record_format: 'english-text'
+  Part {
+    file_pattern: '/Users/arpi/Projects/opion/opion/review_in.txt'
+  }
+}
+input {
+  name: 'test-in'
+  record_format: 'english-text'
+  Part {
+    file_pattern: 'syntaxnet/testdata/sentiment/movie_reviews/new_review.txt'
+  }
+}
+input {
+  name: 'file-out'
+  record_format: 'conll-sentence'
+  Part {
+    file_pattern: '/Users/arpi/Projects/opion/opion/review_out.txt'
+  }
+}

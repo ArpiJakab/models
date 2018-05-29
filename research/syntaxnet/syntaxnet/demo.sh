@@ -25,11 +25,13 @@
 
 PARSER_EVAL=bazel-bin/syntaxnet/parser_eval
 MODEL_DIR=syntaxnet/models/parsey_mcparseface
-[[ "$1" == "--conll" ]] && INPUT_FORMAT=stdin-conll || INPUT_FORMAT=stdin
+[[ "$1" == "--conll" ]] && INPUT_FORMAT=stdin-conll || [[ "$1" == "--file" ]] && INPUT_FORMAT=file-in || [[ "$1" == "--test" ]] && INPUT_FORMAT=test-in || INPUT_FORMAT=stdin
+#[[ "$1" == "--file" ]] && OUTPUT_FORMAT=file-out || OUTPUT_FORMAT=stdout-conll
+OUTPUT_FORMAT=stdout-conll
 
 $PARSER_EVAL \
   --input=$INPUT_FORMAT \
-  --output=stdout-conll \
+  --output=$OUTPUT_FORMAT \
   --hidden_layer_sizes=64 \
   --arg_prefix=brain_tagger \
   --graph_builder=structured \
@@ -51,6 +53,11 @@ $PARSER_EVAL \
   --batch_size=1024 \
   --alsologtostderr \
   | \
-  bazel-bin/syntaxnet/conll2tree \
+  bazel-bin/syntaxnet/sentiment \
   --task_context=$MODEL_DIR/context.pbtxt \
+  $1 \
   --alsologtostderr
+#  | \
+#  bazel-bin/syntaxnet/conll2tree \
+#  --task_context=$MODEL_DIR/context.pbtxt \
+#  --alsologtostderr
