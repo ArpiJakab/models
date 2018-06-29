@@ -8,6 +8,11 @@ local_repository(
     path = "/Users/arpi/Projects/sentiment",
 )
 
+local_repository(
+    name = "opion",
+    path = "/Users/arpi/Projects/opion/opion",
+)
+
 # We need to pull in @io_bazel_rules_closure for TensorFlow. Bazel design
 # documentation states that this verbosity is intentional, to prevent
 # TensorFlow/SyntaxNet from depending on different versions of

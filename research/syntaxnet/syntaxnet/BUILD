@@ -831,6 +831,7 @@ py_binary(
         ":graph_builder",
         ":sentence_py_pb2",
         "@sentiment//:sentiment_parser",
+        "@opion//:opion",
     ],
 )
 
