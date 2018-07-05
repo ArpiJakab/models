@@ -109,7 +109,8 @@ def get_inputs(input_queue,
     image_keys: a list of string keys for the images.
     locations_list: a list of tensors of shape [num_boxes, 4]
       containing the corners of the groundtruth boxes.
-    classes_list: a list of padded one-hot tensors containing target classes.
+    classes_list: a list of padded one-hot (or K-hot) float32 tensors containing
+      target classes.
     masks_list: a list of 3-D float tensors of shape [num_boxes, image_height,
       image_width] containing instance masks for objects if present in the
       input_queue. Else returns None.
@@ -141,6 +142,7 @@ def get_inputs(input_queue,
     if merge_multiple_label_boxes:
       location_gt, classes_gt, _ = util_ops.merge_boxes_with_multiple_labels(
           location_gt, classes_gt, num_classes)
+      classes_gt = tf.cast(classes_gt, tf.float32)
     elif use_multiclass_scores:
       classes_gt = tf.cast(read_data[fields.InputDataFields.multiclass_scores],
                            tf.float32)
@@ -235,6 +237,9 @@ def train(create_tensor_dict_fn,
       built (before optimization). This is helpful to perform additional changes
       to the training graph such as adding FakeQuant ops. The function should
       modify the default graph.
+
+  Raises:
+    ValueError: If both num_clones > 1 and train_config.sync_replicas is true.
   """
 
   detection_model = create_model_fn()
@@ -256,9 +261,16 @@ def train(create_tensor_dict_fn,
     with tf.device(deploy_config.variables_device()):
       global_step = slim.create_global_step()
 
+    if num_clones != 1 and train_config.sync_replicas:
+      raise ValueError('In Synchronous SGD mode num_clones must ',
+                       'be 1. Found num_clones: {}'.format(num_clones))
+    batch_size = train_config.batch_size // num_clones
+    if train_config.sync_replicas:
+      batch_size //= train_config.replicas_to_aggregate
+
     with tf.device(deploy_config.inputs_device()):
       input_queue = create_input_queue(
-          train_config.batch_size // num_clones, create_tensor_dict_fn,
+          batch_size, create_tensor_dict_fn,
           train_config.batch_queue_capacity,
           train_config.num_batch_queue_threads,
           train_config.prefetch_queue_capacity, data_augmentation_options)
@@ -377,7 +389,8 @@ def train(create_tensor_dict_fn,
               train_config.load_all_detection_checkpoint_vars))
       available_var_map = (variables_helper.
                            get_variables_available_in_checkpoint(
-                               var_map, train_config.fine_tune_checkpoint))
+                               var_map, train_config.fine_tune_checkpoint,
+                               include_global_step=False))
       init_saver = tf.train.Saver(available_var_map)
       def initializer_fn(sess):
         init_saver.restore(sess, train_config.fine_tune_checkpoint)

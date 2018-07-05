@@ -32,12 +32,13 @@ from absl import flags
 import tensorflow as tf
 # pylint: enable=g-bad-import-order
 
-from official.recommendation import constants
-from official.recommendation import dataset
+from official.datasets import movielens
+from official.recommendation import movielens_dataset
 from official.recommendation import neumf_model
 from official.utils.flags import core as flags_core
 from official.utils.logs import hooks_helper
 from official.utils.logs import logger
+from official.utils.misc import distribution_utils
 from official.utils.misc import model_helpers
 
 _TOP_K = 10  # Top-k list for evaluation
@@ -46,7 +47,7 @@ _HR_KEY = "HR"
 _NDCG_KEY = "NDCG"
 
 
-def evaluate_model(estimator, batch_size, num_gpus, ncf_dataset):
+def evaluate_model(estimator, batch_size, num_gpus, ncf_dataset, pred_input_fn):
   """Model evaluation with HR and NDCG metrics.
 
   The evaluation protocol is to rank the test interacted item (truth items)
@@ -70,6 +71,7 @@ def evaluate_model(estimator, batch_size, num_gpus, ncf_dataset):
         NDCG calculation. Each item is for one user.
       eval_all_items, which is a nested list. Each entry is the 101 items
         (1 ground truth item and 100 negative items) for one user.
+    pred_input_fn: The input function for the test data.
 
   Returns:
     eval_results: A dict of evaluation results for benchmark logging.
@@ -82,14 +84,10 @@ def evaluate_model(estimator, batch_size, num_gpus, ncf_dataset):
       ndcg is an integer representing the average NDCG scores across all users,
       and global_step is the global step
   """
-  # Define prediction input function
-  def pred_input_fn():
-    return dataset.input_fn(
-        False, per_device_batch_size(batch_size, num_gpus), ncf_dataset)
 
   # Get predictions
   predictions = estimator.predict(input_fn=pred_input_fn)
-  all_predicted_scores = [p[constants.RATING] for p in predictions]
+  all_predicted_scores = [p[movielens.RATING_COLUMN] for p in predictions]
 
   # Calculate HR score
   def _get_hr(ranklist, true_item):
@@ -146,8 +144,7 @@ def convert_keras_to_estimator(keras_model, num_gpus, model_dir):
   Returns:
     est_model: The converted Estimator.
   """
-  # TODO(b/79866338): update GradientDescentOptimizer with AdamOptimizer
-  optimizer = tf.train.GradientDescentOptimizer(
+  optimizer = tf.train.AdamOptimizer(
       learning_rate=FLAGS.learning_rate)
   keras_model.compile(optimizer=optimizer, loss="binary_crossentropy")
 
@@ -166,54 +163,23 @@ def convert_keras_to_estimator(keras_model, num_gpus, model_dir):
   return estimator
 
 
-def per_device_batch_size(batch_size, num_gpus):
-  """For multi-gpu, batch-size must be a multiple of the number of GPUs.
-
-  Note that this should eventually be handled by DistributionStrategies
-  directly. Multi-GPU support is currently experimental, however,
-  so doing the work here until that feature is in place.
-
-  Args:
-    batch_size: Global batch size to be divided among devices. This should be
-      equal to num_gpus times the single-GPU batch_size for multi-gpu training.
-    num_gpus: How many GPUs are used with DistributionStrategies.
-
-  Returns:
-    Batch size per device.
-
-  Raises:
-    ValueError: if batch_size is not divisible by number of devices
-  """
-  if num_gpus <= 1:
-    return batch_size
-
-  remainder = batch_size % num_gpus
-  if remainder:
-    err = ("When running with multiple GPUs, batch size "
-           "must be a multiple of the number of available GPUs. Found {} "
-           "GPUs with a batch size of {}; try --batch_size={} instead."
-          ).format(num_gpus, batch_size, batch_size - remainder)
-    raise ValueError(err)
-  return int(batch_size / num_gpus)
-
-
 def main(_):
-  # Data preprocessing
-  # The file name of training and test dataset
-  train_fname = os.path.join(
-      FLAGS.data_dir, FLAGS.dataset + "-" + constants.TRAIN_RATINGS_FILENAME)
-  test_fname = os.path.join(
-      FLAGS.data_dir, FLAGS.dataset + "-" + constants.TEST_RATINGS_FILENAME)
-  neg_fname = os.path.join(
-      FLAGS.data_dir, FLAGS.dataset + "-" + constants.TEST_NEG_FILENAME)
+  with logger.benchmark_context(FLAGS):
+    run_ncf(FLAGS)
 
-  assert os.path.exists(train_fname), (
-      "Run data_download.py first to download and extract {} dataset".format(
-          FLAGS.dataset))
+
+def run_ncf(_):
+  """Run NCF training and eval loop."""
+  if FLAGS.download_if_missing:
+    movielens.download(FLAGS.dataset, FLAGS.data_dir)
+    movielens_dataset.construct_train_eval_csv(
+        data_dir=FLAGS.data_dir, dataset=FLAGS.dataset)
 
   tf.logging.info("Data preprocessing...")
-  ncf_dataset = dataset.data_preprocessing(
-      train_fname, test_fname, neg_fname, FLAGS.num_neg)
+  ncf_dataset = movielens_dataset.data_preprocessing(
+      FLAGS.data_dir, FLAGS.dataset, FLAGS.num_neg)
+
+  model_helpers.apply_clean(flags.FLAGS)
 
   # Create NeuMF model and convert it to Estimator
   tf.logging.info("Creating Estimator from Keras model...")
@@ -229,6 +195,7 @@ def main(_):
   # Create hooks that log information about the training and metric values
   train_hooks = hooks_helper.get_train_hooks(
       FLAGS.hooks,
+      model_dir=FLAGS.model_dir,
       batch_size=FLAGS.batch_size  # for ExamplesPerSecondHook
   )
   run_params = {
@@ -237,17 +204,25 @@ def main(_):
       "hr_threshold": FLAGS.hr_threshold,
       "train_epochs": FLAGS.train_epochs,
   }
-  benchmark_logger = logger.config_benchmark_logger(FLAGS)
+  benchmark_logger = logger.get_benchmark_logger()
   benchmark_logger.log_run_info(
       model_name="recommendation",
       dataset_name=FLAGS.dataset,
-      run_params=run_params)
+      run_params=run_params,
+      test_id=FLAGS.benchmark_test_id)
 
   # Training and evaluation cycle
-  def train_input_fn():
-    return dataset.input_fn(
-        True, per_device_batch_size(FLAGS.batch_size, num_gpus),
-        ncf_dataset, FLAGS.epochs_between_evals)
+  def get_train_input_fn():
+    return movielens_dataset.get_input_fn(
+        True,
+        distribution_utils.per_device_batch_size(FLAGS.batch_size, num_gpus),
+        ncf_dataset, FLAGS.data_dir, FLAGS.dataset, FLAGS.epochs_between_evals)
+
+  def get_pred_input_fn():
+    return movielens_dataset.get_input_fn(
+        False,
+        distribution_utils.per_device_batch_size(FLAGS.batch_size, num_gpus),
+        ncf_dataset, FLAGS.data_dir, FLAGS.dataset, 1)
 
   total_training_cycle = FLAGS.train_epochs // FLAGS.epochs_between_evals
 
@@ -256,11 +231,11 @@ def main(_):
         cycle_index + 1, total_training_cycle))
 
     # Train the model
-    estimator.train(input_fn=train_input_fn, hooks=train_hooks)
+    estimator.train(input_fn=get_train_input_fn(), hooks=train_hooks)
 
     # Evaluate the model
     eval_results = evaluate_model(
-        estimator, FLAGS.batch_size, num_gpus, ncf_dataset)
+        estimator, FLAGS.batch_size, num_gpus, ncf_dataset, get_pred_input_fn())
 
     # Benchmark the evaluation results
     benchmark_logger.log_evaluation_result(eval_results)
@@ -289,7 +264,8 @@ def define_ncf_flags():
       intra_op=False,
       synthetic_data=False,
       max_train_steps=False,
-      dtype=False
+      dtype=False,
+      all_reduce_alg=False
   )
   flags_core.define_benchmark()
 
@@ -308,6 +284,10 @@ def define_ncf_flags():
       enum_values=["ml-1m", "ml-20m"], case_sensitive=False,
       help=flags_core.help_wrap(
           "Dataset to be trained and evaluated."))
+
+  flags.DEFINE_boolean(
+      name="download_if_missing", default=True, help=flags_core.help_wrap(
+          "Download data to data_dir if it is not already present."))
 
   flags.DEFINE_integer(
       name="num_factors", default=8,
