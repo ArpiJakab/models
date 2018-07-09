@@ -894,7 +894,7 @@ py_binary(
     srcs = ["sentiment.py"],
     deps = [
         ":graph_builder",
-        ":sentence_py_pb2",
+        ":sentence_pb2_py",
         "@sentiment//:sentiment_parser",
         "@opion//:opion",
     ],
