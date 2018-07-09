@@ -64,6 +64,12 @@ def main(argv):
             documents, finished = sess.run(src)
             tf_logging.info('Read %d documents', len(documents))
             for d in documents:
+                if 'MOVIE_REVIEW_END' in d:
+                    print 'end of review'
+                    MovieReview(review).parse_tags(tag_file)
+                    review = know.Miniverse('review')
+                    continue
+
                 log.debug('Document: ')
                 if '--test' in argv:
                     i += 1
@@ -76,22 +82,13 @@ def main(argv):
                 tr = asciitree.LeftAligned()
                 sentiment_parser.print_tree(sentence)
                 phrases = sentiment_parser.parse_phrases(sentence)
-                review.add_knowledge(phrases)
+                try:
+                    review.add_knowledge(phrases)
+                except Exception as e:
+                    print 'Add knowledge error: ' + e.message
+
             if finished:
                 break
-
-        MovieReview(review).parse_tags(tag_file)
-        '''
-        story = review.get_topic(['story', 'storyline', 'story line', 'plot', 'plotline', 'storyplot', 'storytelling', 'writing', 'screenplay'])
-        print 'story', story
-        if story:
-            for a in story.attributes:
-                phrase = a.phrase
-                if phrase:
-                    predicate = phrase.str_root()
-                    print 'predicate', predicate
-        review.write_sentiments()
-        '''
 
 if __name__ == '__main__':
     # Invoked from standard input, script, interactive prompt
