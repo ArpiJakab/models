@@ -5,12 +5,12 @@ local_repository(
 
 local_repository(
     name = "sentiment",
-    path = "/Users/arpi/Projects/sentiment",
+    path = "/home/arpadj_gmail_com/sentiment",
 )
 
 local_repository(
     name = "opion",
-    path = "/Users/arpi/Projects/opion/opion",
+    path = "/home/arpadj_gmail_com/opion/opion",
 )
 
 # We need to pull in @io_bazel_rules_closure for TensorFlow. Bazel design
