@@ -81,11 +81,11 @@ def main(argv):
                 sentence.ParseFromString(d)
                 tr = asciitree.LeftAligned()
                 sentiment_parser.print_tree(sentence)
-                phrases = sentiment_parser.parse_phrases(sentence)
                 try:
+                    phrases = sentiment_parser.parse_phrases(sentence)
                     review.add_knowledge(phrases)
                 except Exception as e:
-                    print 'Add knowledge error: ' + e.message
+                    print 'Sentiment error: ' + e.message
 
             if finished:
                 break
