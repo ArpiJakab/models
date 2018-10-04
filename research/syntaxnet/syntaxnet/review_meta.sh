@@ -46,6 +46,7 @@ $PARSER_EVAL \
   | \
   bazel-bin/syntaxnet/sentiment \
   --task_context=$MODEL_DIR/context.pbtxt \
+  --product_specs_path=/Users/arpi/Projects/opion/opion/product_specs.json \
   --output_path=/Users/arpi/Projects/opion/opion/tags.json \
   $1 \
   --alsologtostderr

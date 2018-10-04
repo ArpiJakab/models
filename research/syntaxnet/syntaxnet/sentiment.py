@@ -7,10 +7,13 @@ from syntaxnet.ops import gen_parser_ops
 from external.sentiment.sentiment_parser import SentimentParser
 from external.opion import knowledge as know
 from external.opion.movie_review import MovieReview
+from external.opion.ecommerce_review import ECReview
+
 import sys
 import logging as log
 import os
 import json
+import re
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -36,12 +39,15 @@ flags.DEFINE_string('corpus_name', 'stdin-conll',
 log.debug('Start logging ')
 
 def main(argv):
+    product_specs_file = 'product_specs.json'
     tag_file = 'tags.json'
     for i, arg in enumerate(argv):
         if '=' in arg:
             k,v = arg.split('=')
             if k == '--output_path':
                 tag_file = v
+            elif k == '--product_specs_path':
+                product_specs_file = v
 
     print 'Output file: ' + tag_file
 
@@ -52,7 +58,6 @@ def main(argv):
             task_context=FLAGS.task_context)
         sentence = sentence_pb2.Sentence()
         sentiment_parser = SentimentParser()
-        review = know.Miniverse('review')
 
         if '--test' in argv:
             i = 0
@@ -60,13 +65,32 @@ def main(argv):
             if not os.path.exists(new_review_dir):
                 os.mkdir(new_review_dir)
 
+        parser = MovieReview()
+        def _parse_tags(review):
+            parser.parse_tags(review, tag_file)
+
+        offset = 0
+
         while True:
             documents, finished = sess.run(src)
+            # Each document is a single line of input from review_in.txt
             tf_logging.info('Read %d documents', len(documents))
+            found_end = False
+            review = know.Miniverse('review')
             for d in documents:
-                if 'MOVIE_REVIEW_END' in d:
+                if '__ECOMMERCE_REVIEWS__' in d:
+                    log.debug('eCommerce review parse tags')
+                    parser = ECReview(product_specs_file)
+                    continue
+                elif '__OFFSET__' in d:
+                    start = d.find('__OFFSET__')
+                    offset = int(re.split('([^0-9])', d[start + 10:])[2])
+                    print('sentiment offset', offset)
+                    continue
+                elif '__REVIEW_END__' in d:
+                    found_end = True
                     print 'end of review'
-                    MovieReview(review).parse_tags(tag_file)
+                    _parse_tags(review)
                     review = know.Miniverse('review')
                     continue
 
@@ -78,17 +102,22 @@ def main(argv):
                 else:
                     with open('doc.proto', 'w') as f:
                         f.write(d)
-                sentence.ParseFromString(d)
+                ret = sentence.ParseFromString(d)
                 tr = asciitree.LeftAligned()
                 sentiment_parser.print_tree(sentence)
                 try:
-                    phrases = sentiment_parser.parse_phrases(sentence)
+                    phrases = sentiment_parser.parse_phrases(sentence, offset)
+                    print('phrases', phrases.__str__())
                     review.add_knowledge(phrases)
                 except Exception as e:
                     print 'Sentiment error: ' + e.message
 
+            if not found_end:
+                _parse_tags(review)
+
             if finished:
                 break
+
 
 if __name__ == '__main__':
     # Invoked from standard input, script, interactive prompt
