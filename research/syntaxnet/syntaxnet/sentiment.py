@@ -70,13 +70,13 @@ def main(argv):
             parser.parse_tags(review, tag_file)
 
         offset = 0
-
         while True:
             documents, finished = sess.run(src)
             # Each document is a single line of input from review_in.txt
             tf_logging.info('Read %d documents', len(documents))
             found_end = False
             review = know.Miniverse('review')
+            fixups = None
             for d in documents:
                 if '__ECOMMERCE_REVIEWS__' in d:
                     log.debug('eCommerce review parse tags')
@@ -85,7 +85,15 @@ def main(argv):
                 elif '__OFFSET__' in d:
                     start = d.find('__OFFSET__')
                     offset = int(re.split('([^0-9])', d[start + 10:])[2])
-                    print('sentiment offset', offset)
+                    continue
+                elif '__FIXUPS__' in d:
+                    start = d.find('__FIXUPS__')
+                    array = d[d.find('-LRB-', start) + 5 : d.find('-RRB-', start)]
+
+                    if array == ' ':
+                        fixups = None
+                    else:
+                        fixups = [int(s) for s in array.replace(' ', '').split(',')]
                     continue
                 elif '__REVIEW_END__' in d:
                     found_end = True
@@ -106,11 +114,14 @@ def main(argv):
                 tr = asciitree.LeftAligned()
                 sentiment_parser.print_tree(sentence)
                 try:
-                    phrases = sentiment_parser.parse_phrases(sentence, offset)
+                    phrases = sentiment_parser.parse_phrases(sentence, offset, fixups)
                     print('phrases', phrases.__str__())
                     review.add_knowledge(phrases)
                 except Exception as e:
-                    print 'Sentiment error: ' + e.message
+                    print('Sentiment error: ', str(e))
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    print(exc_type, fname, exc_tb.tb_lineno)
 
             if not found_end:
                 _parse_tags(review)
